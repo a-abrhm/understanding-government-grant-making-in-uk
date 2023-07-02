@@ -1,0 +1,574 @@
+---
+title: "360_giving_project"
+author: 'a-abrhm'
+date: "`r Sys.Date()`"
+output: pdf_document
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+library(stringr)
+library(lubridate)
+library(ggplot2)
+library(RColorBrewer)
+library(forcats)
+library(gdata)
+```
+
+### Reading the data
+
+Download the dataset from 360 giving's grantnav portal. Fundings made by Central,
+Local and Devolved government types are taken for the period 2010 - 2022.
+The downloaded dataset is fed into R.
+
+```{r}
+grant_data <- read.csv("grantnav-20230701154216.csv")
+```
+
+### Cleaning and preprocessing
+
+Dropping insignificant columns
+
+```{r}
+grant_data <- select(grant_data, !c("Currency", "Amount.Applied.For", "Amount.Disbursed",
+                                    "Recipient.Org.Charity.Number", "URL",
+                                    "Planned.Dates.Start.Date", "Planned.Dates.End.Date",
+                                    "Planned.Dates.Duration..months.","Actual.Dates.Start.Date" ,
+                                     "Actual.Dates.End.Date", "Actual.Dates.Duration..months.",
+                                    "Recipient.Org.Company.Number", "Recipient.Org.Postal.Code",
+                                    "Recipient.Org.Location.0.Geographic.Code.Type",
+                                    "Recipient.Org.Location.0.Geographic.Code",
+                                    "Recipient.Org.Location.0.Name",
+                                    "Recipient.Org.Location.1.Geographic.Code.Type",
+                                    "Recipient.Org.Location.1.Geographic.Code",
+                                    "Recipient.Org.Location.1.Name",                
+                                    "Recipient.Org.Location.2.Geographic.Code.Type",
+                                    "Recipient.Org.Location.2.Geographic.Code",
+                                    "Recipient.Org.Location.2.Name",
+                                    "Funding.Org.Postal.Code",
+                                    "Grant.Programme.Code",
+                                    "Grant.Programme.Title",
+                                    "Grant.Programme.URL",
+                                    "Beneficiary.Location.0.Name",
+                                    "Beneficiary.Location.0.Country.Code",
+                                    "Beneficiary.Location.0.Geographic.Code",
+                                    "Beneficiary.Location.0.Geographic.Code.Type",                                                        "Beneficiary.Location.1.Name",             
+                                    "Beneficiary.Location.1.Country.Code",                          
+                                    "Beneficiary.Location.1.Geographic.Code",
+                                    "Beneficiary.Location.1.Geographic.Code.Type",
+                                    "Beneficiary.Location.2.Name",
+                                    "Beneficiary.Location.2.Country.Code",
+                                    "Beneficiary.Location.2.Geographic.Code",
+                                    "Beneficiary.Location.2.Geographic.Code.Type",
+                                    "Beneficiary.Location.3.Name",
+                                    "Beneficiary.Location.3.Country.Code",
+                                    "Beneficiary.Location.3.Geographic.Code",
+                                    "Beneficiary.Location.3.Geographic.Code.Type",
+                                    "Beneficiary.Location.4.Name",
+                                    "Beneficiary.Location.4.Country.Code",
+                                    "Beneficiary.Location.4.Geographic.Code",
+                                    "Beneficiary.Location.4.Geographic.Code.Type",
+                                    "Beneficiary.Location.5.Name",                     
+                                    "Beneficiary.Location.5.Country.Code",
+                                    "Beneficiary.Location.5.Geographic.Code",
+                                    "Beneficiary.Location.5.Geographic.Code.Type",
+                                    "Beneficiary.Location.6.Name",
+                                    "Beneficiary.Location.6.Country.Code",
+                                    "Beneficiary.Location.6.Geographic.Code",
+                                    "Beneficiary.Location.6.Geographic.Code.Type",
+                                    "Beneficiary.Location.7.Name",
+                                    "Beneficiary.Location.7.Country.Code",
+                                    "Beneficiary.Location.7.Geographic.Code",
+                                    "Beneficiary.Location.7.Geographic.Code.Type",
+                                    "From.An.Open.Call.", "Data.Source",  "The.following.fields.are.not.in.the.360.Giving.Standard.and.are.added.by.GrantNav.",
+                                    "Publisher.Name", "Recipient.Region",
+                                    "Recipient.District",                      
+                                    "Recipient.District.Geographic.Code",
+                                    "Recipient.Ward",
+                                    "Recipient.Ward.Geographic.Code",
+                                    "Retrieved.for.use.in.GrantNav",
+                                    "Funding.Org..Org.Type",
+                                    "Funding.Org..Canonical.Org.ID",
+                                    "Funding.Org..Canonical.Name",
+                                    "Recipient.Org..Date.Registered",
+                                    "Recipient.Org..Date.Removed",
+                                    "Recipient.Org..Org.ID.s.",
+                                    "Recipient.Org..Latest.Income",
+                                    "Recipient.Org..Latest.Income.Date",
+                                    "Recipient.Org..Org.Type",
+                                    "Recipient.Org..Canonical.Org.ID",
+                                    "Recipient.Org..Canonical.Name",
+                                    "Recipient.Org..Registered.Postcode",
+                                    "Recipient.Org..Data.Source","License..see.note.",
+"Note..this.file.also.contains.OS.data...Crown.copyright.and.database.right.2016..Royal.Mail.data...Royal.Mail.copyright.and.Database.right.2016..National.Statistics.data...Crown.copyright.and.database.right.2015...2016..see.http...grantnav.threesixtygiving.org.datasets..for.more.information."
+                                    ))
+```
+
+The recipient.org.name column contains duplicate names with different
+cases. They also have 2 types of recipient.org.identifiers (one starting
+with 360G-... and the other starting with GB-...). Since all these point
+to the same recipient organisation, we are making them have the same
+identifier (one starting with GB-...)
+
+```{r}
+grant_data$Recipient.Org.Name <- tolower(grant_data$Recipient.Org.Name)
+```
+
+The recipient.org.name column has entries [placeholder] and [foreign
+affairs]. Replacing those values with the corresponding
+recipient.org.identifier
+
+```{r}
+grant_data <- grant_data %>% mutate(Recipient.Org.Name =
+                                      ifelse(str_detect(Recipient.Org.Name,
+                                                        "^\\[(.*)\\]$"),
+                                             Recipient.Org.Identifier,
+                                             Recipient.Org.Name))
+```
+
+The university recipients have multiple names and identifiers, all of
+which refers to the same entity. Therefore making all such rows of the
+same entity have the same organisation name and identifier.
+
+```{r}
+grant_data <- grant_data %>% mutate(Recipient.Org.Name.Temp = str_extract(Recipient.Org.Name,
+                                         "^(the u|u)niversity of \\w+"))
+grant_data <- grant_data %>%
+  mutate(Recipient.Org.Name = ifelse(!is.na(Recipient.Org.Name.Temp),
+                                     str_extract(Recipient.Org.Name.Temp,
+                                                 "university of \\w+"),
+                                     Recipient.Org.Name)) %>% select(!(Recipient.Org.Name.Temp))
+# grouping by identifier and making the organisation name same
+recipient_names_and_identifiers <- grant_data %>% count(Recipient.Org.Name,
+                                                  Recipient.Org.Identifier)
+for(i in 1:nrow(recipient_names_and_identifiers)) {
+  if (i > 1 && recipient_names_and_identifiers$Recipient.Org.Name[i] ==
+      recipient_names_and_identifiers$Recipient.Org.Name[i - 1]) {
+    next
+  }
+  identifiers <- recipient_names_and_identifiers$Recipient.Org.Identifier[
+    recipient_names_and_identifiers$Recipient.Org.Name ==
+      recipient_names_and_identifiers$Recipient.Org.Name[i]
+  ]
+  grant_data$Recipient.Org.Identifier[grant_data$Recipient.Org.Name ==
+                    recipient_names_and_identifiers$Recipient.Org.Name[i]] <-
+    identifiers[length(identifiers)]
+}
+```
+
+Converting columns to their correct datatypes
+
+```{r warning=FALSE}
+grant_data <- mutate(grant_data, Amount.Awarded = as.double(Amount.Awarded)) %>% na.omit()
+```
+
+Dropping rows with "Amount.Awarded" less than or equal to zero ( new
+case where funds are one digit. So removing funds less than 100 pounds )
+
+```{r}
+grant_data <- filter(grant_data, Amount.Awarded > 100)
+```
+
+Changing the "Award.Date" column to datetime. The original data set has
+dates in 2 formats (d-m-y and m-d-y). So the following logic is used to
+parse dates in any order of day, month and year to date.
+
+Function that converts date_strings in any order to date
+
+```{r}
+convert_date_strings <- function(date_strings, separator = "\\/|\\-") {
+  ds <- as.vector(sapply(str_split(date_strings, separator), as.integer))
+  # max value day can take is 31
+  # max value month can take is 12
+  # so anything greater than 31 is taken as year
+  # Also we assume by that the month value will come in the middle
+  y <- ds[ds > 31]
+  m <- ds[ds < 32][rep(c(FALSE, TRUE), length(date_strings))]
+  d <- ds[ds < 32][rep(c(TRUE, FALSE), length(date_strings))]
+  mismatched_indices <- which(m > 12)
+  if (length(mismatched_indices)) {
+    m[mismatched_indices] <- ds[ds < 32][rep(c(TRUE, FALSE),
+                                             length(date_strings))][mismatched_indices]
+    d[mismatched_indices] <- ds[ds < 32][rep(c(FALSE, TRUE),
+                                             length(date_strings))][mismatched_indices]
+  }
+  return(make_date(y, m, d))
+}
+```
+
+```{r converting date string to date}
+grant_data <- mutate(grant_data, Award.Date = convert_date_strings(Award.Date))
+```
+
+Creating a column to store the year each grant was made
+
+```{r}
+grant_data <- mutate(grant_data, "Award.Year" = year(Award.Date))
+```
+
+Removing grants made before 2010
+
+```{r}
+grant_data <- filter(grant_data, Award.Year >= 2010)
+```
+
+### Sectors
+
+Classifying grants made to different sectors or themes
+
+Creating a dictionary of sector and keywords of that sector
+
+Not including "environment" as the keywords have overlap Have to
+identify which sector to assign if there is overlap with multiple
+categories
+
+```{r sector-keywords dictionary}
+sector_keywords_dict <- list(
+  "education" = c("education", "school", "university", "research"),
+  "covid" = c("covid"),
+  "homeless/housing" = c("house", "housing", "home", "tenant", "rough sleeper"),
+  "business" = c("business", "trade", "market"),
+  "artistic_cause" = c("art", "craft"),
+  "animal_welfare_and_disease" = c("animal", "fauna", "zoo", "wildlife"),
+  "blindness" = c("blind", "visually impaired", "eye"),
+  "care_of_elderly" = c("elderly", "senior citizen"),
+  "children" = c("child", "young people"),
+  "community_development" = c("community development", "community"),
+  "conservation/preservation" = c("conservation", "perservation"),
+  "deafness" = c("deaf"),
+  "destitution" = c("destitute", "destitution", "poverty", "asylum"),
+  "refugees" = c("refugee"),
+  "migrant" = c("migrant"),
+  "disables/handicapped" = c("disability", "disabilities", "handicap", "mobility",
+                             "lonely", "health problem"),
+  "emergency_appeal" = c("emergency appeal"),
+  "employment_and_job_creation" = c("employment", "job"),
+  "human_rights" = c("human right"),
+  "medical_care_and_research" = c("medical", "medicine", "hospital", "sick", "health",
+                                  "doctor", "NHS", "illness", "disease"),
+  "mental_health" = c("mental health"),
+  "violence_abuse_and_crime_prevention" = c("violence", "abuse", "crime", "victim",
+                                            "prison", "sexual abuse", "rape"),
+  "water_sanitation_and_hygiene" = c("water", "sanitation", "hygiene"),
+  "transportation_and_logistics" = c("transport", "logistic", "freight", "biofuel",
+                                     "mini bus", "SEFT", "supply chain", "highways",
+                                     "bike", "LSTF", "crossrail", "TFL", "road safety",
+                                     "transit", "vechicle", "truck", "CAA", "van",
+                                     "bus", "energy saving"),
+  "agriculture" = c("agricultur", "horticulture", "cultivat"),
+  "culture" = c("tradition", "culture", "heritage", "history"),
+  "electric_vechicles" = c("home chargers", "electric vehicle", "EV", "ULEV", 
+                           "plugged in"),
+  "sports" = c("play", "activity"),
+  "awareness campaign" = c("awareness", "campaign"),
+  "festival" = c("festival")
+)
+```
+
+Function that returns possible sectors for a grant based on the title
+and description
+
+```{r function to filter by keyword match}
+find_sectors <- function(title = "", description = "") {
+  sectors <- sapply(sector_keywords_dict, function(item) {
+    str_detect(title, paste("(?i)(", paste0(item, collapse = "|"), ")", sep = "")) |
+      str_detect(description, paste("(?i)(", paste0(item, collapse = "|"), ")", sep = ""))
+  })
+  return(paste0(names(sectors[sectors == TRUE]), collapse = ", "))
+}
+```
+
+Creating a new column that will store possible sectors a grant is made
+to.
+
+```{r}
+grant_data$Possible.Sectors <- ""
+for (i in 1:nrow(grant_data)) {
+  grant_data$Possible.Sectors[i] <- find_sectors(grant_data$Title[i],
+                                                 grant_data$Description[i])
+}
+```
+
+Converting the rows with multiple sectors and containing covid to only
+covid.
+
+```{r}
+grant_data$Possible.Sectors[str_detect(grant_data$Possible.Sectors, "covid")] <- "covid"
+```
+
+The sector classification function assigns multiple categories for some
+rows. Such rows must be labelled correctly by manual supervision. For now,
+only taking the first sector in case of multiple sectors.
+
+Note:- The order of sectors in the sector_keywords_dict is important as we are
+        assigning the first matching sector. The order should be carefully determined
+        if you see there is overlapping of keywords in different categories.
+
+```{r}
+grant_data$Sector <- sapply(str_split(grant_data$Possible.Sectors, ","), "[[", 1)
+```
+
+### Visualizations
+
+#### Funder stats
+
+Grouping the data by grants made by each funder
+
+```{r}
+funder_stats <- grant_data %>% group_by(Funding.Org.Identifier) %>%
+  summarise(Funding.Org.Name = first(Funding.Org.Name),
+            Total.Amount = sum(Amount.Awarded) / 1000000000,
+            Total.Grants = n()/1000)
+```
+
+```{r}
+# selecting the funder names from the sorted dataframe
+ordered_funders <- arrange(funder_stats, Total.Amount) %>% select(Funding.Org.Name)
+# making organisation name as a factor and
+# ordering the factors by the levels described by ordered_funders (and not alphabetically)
+funder_stats$Funding.Org.Name <- factor(funder_stats$Funding.Org.Name,
+                                        levels = ordered_funders$Funding.Org.Name)
+# ordering the funder stats by organisation name factor levels so that when plotted,
+# the organisations will not be ordered alphabetically on the axis
+funder_stats <- arrange(funder_stats, Funding.Org.Name)
+
+# line graph
+ggplot(funder_stats, aes(x = Total.Amount, y = Funding.Org.Name, group = 1)) +
+  geom_line(orientation = "y", color = "red") + geom_point(color = "blue") +
+  xlim(0,50) + labs(x = "Total amount (in billions)", y = "Funding orgainsations")
+# bar graph
+ggplot(funder_stats, aes(y = Funding.Org.Name, x = Total.Amount)) +
+  geom_bar(stat = "identity", fill = "darkgreen") +
+  scale_x_continuous(n.breaks = 10) + 
+  labs(y = "Funding orgainsations", x = "Total amount (in billions)")
+
+# ordering funder stats in decreasing order of total grants
+ordered_funders <- arrange(funder_stats, Total.Grants) %>% select(Funding.Org.Name)
+# changing the order of levels in organisation name factor
+funder_stats$Funding.Org.Name <- reorder.factor(funder_stats$Funding.Org.Name,
+                                               new.order = ordered_funders$Funding.Org.Name)
+# ordering by factor levels
+funder_stats <- arrange(funder_stats, Funding.Org.Name)
+
+# line graph
+ggplot(funder_stats, aes(x = Total.Grants, y = Funding.Org.Name, group = 1)) +
+  geom_line(orientation = "y", color = "red") + geom_point(color = "blue") +
+  xlim(0,60) + labs(x = "Total grants made", y = "Funding orgainsations")
+
+# bar graph
+ggplot(funder_stats, aes(y = Funding.Org.Name, x = Total.Grants)) +
+  geom_bar(stat = "identity", fill = "yellowgreen") +
+  scale_x_continuous(n.breaks = 10) +
+  scale_y_discrete(labels = funder_stats$Funding.Org.Name) +
+  labs(y = "Funding orgainsations", x = "Total Grants made")
+```
+
+#### Yearly statistics
+
+```{r}
+yearly_stats <- grant_data %>% group_by(Award.Year) %>%
+  summarise(Avg.Amount.Awarded = mean(Amount.Awarded) / 1000000,
+            Total.Amount.Awarded = sum(Amount.Awarded) / 1000000000,
+            Total.Grants.Given = n() / 1000)
+
+ggplot(yearly_stats, aes(x = Award.Year, y = Avg.Amount.Awarded)) +
+  geom_line(color = "yellowgreen") + geom_point(color = "blue") +
+  scale_x_continuous(n.breaks = nrow(yearly_stats)) +
+  labs(x = "Award Year", y = "Average Amount Awarded (in millions)")
+
+ggplot(yearly_stats, aes(x = Award.Year, y = Total.Amount.Awarded)) +
+  geom_line(color = "yellowgreen") + geom_point(color = "blue") +
+  scale_x_continuous(n.breaks = nrow(yearly_stats)) +
+  labs(x = "Award Year", y = "Total Amount Awarded (in billions)")
+
+ggplot(yearly_stats, aes(x = Award.Year, y = Total.Grants.Given)) +
+  geom_line(color = "yellowgreen") + geom_point(color = "blue") +
+  scale_x_continuous(n.breaks = nrow(yearly_stats)) +
+  labs(x = "Award Year", y = "Total Grants Given (in thousands)")
+```
+
+```{r}
+ggplot(yearly_stats, aes(x = Award.Year, y = Avg.Amount.Awarded)) +
+   geom_bar(stat = "identity", fill = "yellowgreen") +
+  scale_x_continuous(n.breaks = nrow(yearly_stats)) +
+  labs(x = "Award Year", y = "Average Amount Awarded (in millions)")
+  
+ggplot(yearly_stats, aes(x = Award.Year, y = Total.Amount.Awarded)) +
+  geom_bar(stat = "identity", fill = "yellowgreen") +
+  scale_x_continuous(n.breaks = nrow(yearly_stats)) +
+  labs(x = "Award Year", y = "Total Amount Awarded (in billions)")
+
+ggplot(yearly_stats, aes(x = Award.Year, y = Total.Grants.Given)) +
+  geom_bar(stat = "identity", fill = "yellowgreen") +
+  scale_x_continuous(n.breaks = nrow(yearly_stats)) +
+  labs(x = "Award Year", y = "Total Grants Given (in thousands)")
+```
+
+#### Sector stats
+
+```{r}
+sector_stats <- grant_data %>% group_by(Sector) %>%
+  summarise(Total.Amount.Awarded = sum(Amount.Awarded) / 1000000000,
+            Total.Grants.Given = n() / 1000) %>% arrange(desc(Total.Amount.Awarded))
+sector_stats <- filter(sector_stats, Sector != "")
+
+ordered_sectors <- arrange(sector_stats, desc(Total.Amount.Awarded)) %>%
+  select(Sector)
+# making organisation name as a factor and
+# ordering the factors by the levels described by ordered_sectors (and not alphabetically)
+sector_stats$Sector <- factor(sector_stats$Sector,
+                                        levels = ordered_sectors$Sector)
+# ordering the sector stats by organisation name factor levels so that when plotted,
+# the organisations will not be ordered alphabetically on the axis
+sector_stats <- arrange(sector_stats, Sector)
+
+ggplot(sector_stats, aes(x = Sector, y = Total.Amount.Awarded)) +
+   geom_bar(stat = "identity", fill = "yellowgreen") +
+  guides(x = guide_axis(angle = 60)) +
+  labs(x = "Sector", y = "Total Amount Awarded (in billions)")
+
+# ordering sector stats in decreasing order of total grants
+ordered_sectors <- arrange(sector_stats, desc(Total.Grants.Given)) %>%
+  select(Sector)
+# changing the order of levels in organisation name factor
+sector_stats$Sector <- reorder.factor(sector_stats$Sector,
+                                               new.order = ordered_sectors$Sector)
+# ordering by factor levels
+sector_stats <- arrange(sector_stats, Sector)
+  
+ggplot(sector_stats, aes(x = Sector, y = Total.Grants.Given)) +
+  geom_bar(stat = "identity", fill = "yellowgreen") +
+  guides(x = guide_axis(angle = 60)) +
+  labs(x = "Sector", y = "Total Grants Given (in thousands)")
+```
+
+Education sector has received the most grants and total amount, followed
+by artistic cause and then covid.
+
+#### Recipient statistics
+
+```{r}
+recipient_stats_decomposed <- grant_data %>% group_by(Recipient.Org.Identifier,
+                                                      Funding.Org.Identifier) %>%
+  summarise(Recipient.Org.Name = first(Recipient.Org.Name),
+            Amount.Received = sum(Amount.Awarded) / 1000000000,
+            Grants.Received = n())
+
+recipient_stats <- recipient_stats_decomposed %>% group_by(Recipient.Org.Identifier) %>%
+  summarise(Recipient.Org.Name = first(Recipient.Org.Name),
+            Total.Amount.Received = sum(Amount.Received),
+            Total.Grants.Received = sum(Grants.Received),
+            Total.Funders = n())
+
+# ordering by amount received
+
+ordered_recipients <- arrange(recipient_stats, desc(Total.Amount.Received)) %>%
+  select(Recipient.Org.Identifier)
+recipient_stats$Recipient.Org.Identifier <- factor(
+  recipient_stats$Recipient.Org.Identifier,
+  levels = ordered_recipients$Recipient.Org.Identifier)
+recipient_stats <- arrange(recipient_stats, Recipient.Org.Identifier)
+
+ggplot(recipient_stats[1:10,], aes(y = Recipient.Org.Identifier,
+                                   x = Total.Amount.Received)) +
+  geom_bar(stat = "identity", fill = "darkgreen") +
+  scale_y_discrete(labels = recipient_stats$Recipient.Org.Name) +
+  labs(y = "Recipient orgainsations", x = "Total amount (in billions)")
+
+recipient_stats_decomposed$Recipient.Org.Identifier <-
+  factor(recipient_stats_decomposed$Recipient.Org.Identifier,
+         levels = ordered_recipients$Recipient.Org.Identifier)
+
+recipient_stats_decomposed <- arrange(recipient_stats_decomposed,
+                                      Recipient.Org.Identifier,
+                                      desc(Amount.Received))
+
+ggplot(recipient_stats_decomposed[1:52,], aes(y = Recipient.Org.Identifier,
+                                   x = Amount.Received,
+                                   fill = Funding.Org.Identifier)) +
+  geom_bar(stat = "identity") +
+  scale_y_discrete(labels = recipient_stats$Recipient.Org.Name) +
+  labs(y = "Recipient orgainsations", x = "Total amount (in billions)")
+
+# ordering by grants received
+
+ordered_recipients <- arrange(recipient_stats, desc(Total.Grants.Received)) %>%
+  select(Recipient.Org.Identifier)
+recipient_stats$Recipient.Org.Identifier <- reorder.factor(
+  recipient_stats$Recipient.Org.Identifier,
+  new.order = ordered_recipients$Recipient.Org.Identifier)
+recipient_stats <- arrange(recipient_stats, Recipient.Org.Identifier)
+
+ggplot(recipient_stats[1:10,], aes(y = Recipient.Org.Identifier,
+                                   x = Total.Grants.Received)) +
+  geom_bar(stat = "identity", fill = "darkgreen") +
+  scale_y_discrete(labels = recipient_stats$Recipient.Org.Name) +
+  labs(y = "Recipient orgainsations", x = "Total grants")
+
+
+recipient_stats_decomposed$Recipient.Org.Identifier <-
+  reorder.factor(recipient_stats_decomposed$Recipient.Org.Identifier,
+         new.order = ordered_recipients$Recipient.Org.Identifier)
+
+recipient_stats_decomposed <- arrange(recipient_stats_decomposed,
+                                      Recipient.Org.Identifier,
+                                      desc(Grants.Received))
+
+# we are only taking the top 10 recipients (it corresponds to the 1st 52 rows)
+recipient_stats_decomposed <- recipient_stats_decomposed[1:52,]
+top_funders <- recipient_stats_decomposed %>%
+  group_by(Funding.Org.Identifier) %>% summarise(Total.Grants =
+                                                   sum(Grants.Received)) %>%
+  arrange(Total.Grants)
+top_funders$Funding.Org.Name <- ""
+#for (i in 1:nrow(top_funders)) {
+#  top_funders$Funding.Org.Name[i] <- funder_stats$Funding.Org.Name[
+#    funder_stats$Funding.Org.Identifier == top_funders$Funding.Org.Identifier[i]
+#  ]
+#}
+top_funders <- top_funders$Funding.Org.Identifier
+recipient_stats_decomposed$Funding.Org.Identifier <- factor(
+  recipient_stats_decomposed$Funding.Org.Identifier, levels = top_funders
+)
+
+ggplot(recipient_stats_decomposed, aes(y = Recipient.Org.Identifier,
+                                   x = Grants.Received,
+                                   fill = Funding.Org.Identifier)) +
+  geom_bar(stat = "identity") +
+  scale_y_discrete(labels = recipient_stats$Recipient.Org.Name) +
+  scale_fill_manual(values = c("#de2d26", "#756bb1", "#e6550d", "#2c7fb8", "#31a354",
+                               "#c51b8a", "#999999", "#E69F00", "#fec44f", "#7fcdbb",
+                               "#99d8c9", "#fa9fb5", "#a6bddb", "#0d0f66")) +
+  labs(y = "Recipient orgainsations", x = "Total grants")
+```
+
+Calculating the sector statistics for each year so as to get data for time series
+prediction. The resulting data frame will consists of the total amount and total
+grants received by each sector in each year. It should be noted that some sectors
+did not receive any funding in some of the years.
+
+```{r}
+yearly_sector_stats <- grant_data %>% group_by(Sector, Award.Year) %>%
+  summarise(Total.Amount.Awarded = sum(Amount.Awarded) / 1000000000,
+            Total.Grants.Given = n() / 1000) %>% filter(Sector != "")
+```
+
+Writing the data frames into csv files for future reference and use.
+
+```{r}
+write.csv(grant_data, "grant_data.csv")
+write.csv(funder_stats, "funder_stats.csv")
+write.csv(yearly_stats, "yearly_stats.csv")
+write.csv(sector_stats, "sector_stats.csv")
+write.csv(recipient_stats_decomposed, "recipient_stats_decomposed.csv")
+write.csv(recipient_stats, "recipient_stats.csv")
+write.csv(yearly_sector_stats, "yearly_sector_stats.csv")
+```
+
